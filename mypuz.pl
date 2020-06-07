@@ -89,7 +89,7 @@ sub another_sol {
   add_clause(map {$board<=abs($_) && abs($_)<$board+9*9*9 ? - $_ : ()} @sol);
   my @out=solve();
   draw_board(@sol);
-  draw_board(@out);
+  draw_board(@out) if @out;
   @CNF=@save;
   return @out;
 }
@@ -111,6 +111,7 @@ sub sudoku_excl {
 sub shape_order {
   my $lo = shift;
   my $hi = shift;
+  my $nc = shift;
   my $asc = add_literals($#_);  # One less than shape size
   # Ascending/Descending rule
   for my $i (0..$#_ - 1) {
@@ -137,6 +138,15 @@ sub shape_order {
     # -BOARD[i] == hi || -ASC[i]
     add_clause(-lit($_[$i], 0, $lo), $asc + $i);
     add_clause(-lit($_[$i], 0, $hi), -($asc + $i));
+  }
+  # Nonconsecutive
+  if ($nc) {
+    for my $i (0..$#_ - 1) {
+  	  for my $v (0..7) {
+  	    add_clause(-lit($_[$i],0,$v), -lit($_[$i+1],0,$v+1));
+  	    add_clause(-lit($_[$i],0,$v+1), -lit($_[$i+1],0,$v));
+      }
+    }  
   }
 }
 
@@ -192,19 +202,20 @@ my @SHAPE1 = (9, 0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 26, 35, 44, 53,
 			  45, 36, 27, 28, 19, 20, 21, 22, 23, 33, 42, 51, 59, 58,
 			  57, 47, 39, 40);
 
-shape_order(0,8,@SHAPE1);
+shape_order(0,8,0,@SHAPE1);
 
 my @SHAPE2 = (18, 10, 11, 12, 13, 14, 15, 24, 25, 34, 43, 52, 61,
               60, 69, 68, 67, 66, 65, 56, 55, 46, 37, 38, 29, 30,
               31, 32, 41, 50, 49, 48);
               
-shape_order(1,7,@SHAPE2);
+shape_order(1,7,0,@SHAPE2);
 
 ### Givens
 
 add_clause(lit(0,1,0));
 add_clause(lit(8,0,1));
 add_clause(lit(8,8,7));
+add_clause(lit(4,3,6));
 
 ### SOLVE
 
