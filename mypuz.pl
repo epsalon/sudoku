@@ -39,59 +39,65 @@ sub solve {
   return @out;
 }
 
+my $board = add_literals(9*9*9);
+
 sub solve_all {
   my @save = (@CNF);
+  my %cache;
+  
+  sub add_cache {
+    for my $l (@_) {
+      if ($l > 0 && $board<=$l && $l<$board+9*9*9) {
+        $cache{$l}=1;
+      }
+    }
+  }
+  
+  add_cache(@_);
   my @out = ();
   for my $y (0..8) {
     for my $x (0..8) {
+      my $sum=0;
       for my $v (0..8) {
       	my $lit = lit($x,$y,$v);
-      	add_clause($lit);
-      	my $res = solve();
-      	push @out, ($res ? $lit : -$lit);
-      	print STDERR $v+1 if $res;
-      	@CNF = @save;
+      	if ($cache{$lit}) {
+          add_clause(-lit($x,$y,$v));
+          $sum+=$v+1;
+        }
       }
-      print "\t";
+      my @sol=$sum < 45 ? solve() : ();
+      @CNF = @save;
+      if (@sol) {
+        add_cache(@sol);
+        for my $v (0..8) {
+      	  my $lit = lit($x,$y,$v);
+      	  if (!$cache{$lit}) {
+	      	add_clause($lit);
+	      	add_cache(solve());
+	      	@CNF = @save;
+      	  }
+          push @out, ($cache{$lit} ? $lit : -$lit);
+          print STDERR $v+1 if $cache{$lit};
+        }
+      } else {
+        for my $v (0..8) {
+        	my $lit = lit($x,$y,$v);
+        	push @out, ($cache{$lit} ? $lit : -$lit);
+        	print STDERR $v+1 if $cache{$lit};
+        }
+      }
+      print STDERR "\t";
     }
-    print "\n";
+    print STDERR "\n";
   }
   return @out;
 }
-
-my $board = add_literals(9*9*9);
 
 sub lit {
   my $x = shift;
   my $y = shift;
   my $v = shift || 0;
   return $board + $y * 81 + $x * 9 + $v;
-}
-
-sub draw_board {
-  my %sol = map { abs($_) => ($_ > 0 ? 1 : 0) } @_;
-
-  for my $y (0..8) {
-    for my $x (0..8) {
-      for my $v (0..8) {
-        print $v+1 if $sol{lit($x,$y,$v)};
-      }
-      print "\t";
-    }
-    print "\n";
-  }
-  print "\n";
-}
-
-sub another_sol {
-  my @sol = @_;
-  my @save = (@CNF);
-  add_clause(map {$board<=abs($_) && abs($_)<$board+9*9*9 ? - $_ : ()} @sol);
-  my @out=solve();
-  draw_board(@sol);
-  draw_board(@out) if @out;
-  @CNF=@save;
-  return @out;
 }
 
 # Param list of board coords in lit form (v = 0)
@@ -138,6 +144,10 @@ sub shape_order {
     # -BOARD[i] == hi || -ASC[i]
     add_clause(-lit($_[$i], 0, $lo), $asc + $i);
     add_clause(-lit($_[$i], 0, $hi), -($asc + $i));
+    
+    # hi/lo not adjacent
+    add_clause(-lit($_[$i], 0, $lo), -lit($_[$i+1], 0, $hi));
+    add_clause(-lit($_[$i], 0, $hi), -lit($_[$i+1], 0, $lo));
   }
   # Nonconsecutive
   if ($nc) {
@@ -150,7 +160,100 @@ sub shape_order {
   }
 }
 
-# Sudoku rules
+sub thermo {
+  for my $i (0..$#_ - 1) {
+    for my $v (0..8) {
+      add_clause(-lit($_[$i],0,$v),
+      			 map {lit($_[$i+1], 0, $_)} ($v+1..8));
+    }
+  }
+}
+
+sub knight_pairs {
+  my @out;
+  for my $i (0..7) {
+    for my $j (0..6) {
+      push @out, [lit($i,$j), lit($i+1,$j+2)];
+      push @out, [lit($j,$i), lit($j+2,$i+1)];
+      push @out, [lit(8-$i,$j), lit(8-($i+1),$j+2)];
+      push @out, [lit(8-$j,$i), lit(8-($j+2),$i+1)];
+    }
+  }
+  return @out;
+}
+
+sub king_pairs {
+  my @out;
+  for my $i (0..7) {
+    for my $j (0..7) {
+      push @out, [lit($i,$j), lit($i+1,$j+1)];
+      push @out, [lit(8-$i,$j), lit(8-($i+1),$j+1)];
+    }
+  }
+  return @out;
+}
+
+sub ortho_pairs {
+  my @out;
+  for my $i (0..7) {
+    for my $j (0..8) {
+      push @out, [lit($i,$j), lit($i+1,$j)];
+      push @out, [lit($j,$i), lit($j,$i+1)];
+    }
+  }
+  return @out;
+}
+
+sub not_same {
+  for my $group (@_) {
+    for my $i (0..$#$group-1) {
+      for my $j ($i+1..$#$group) {
+        for my $v (0..8) {
+          add_clause (-${$group}[$i]-$v, -${$group}[$j]-$v)
+        }
+      }
+    }
+  }
+}
+
+sub not_conseq {
+  for my $pair (@_) {
+  	my ($a, $b) = @$pair;
+    for my $v (0..7) {
+      add_clause (-$a-$v, -$b-$v-1);
+      add_clause (-$a-$v-1, -$b-$v);
+    }
+  }
+}
+
+sub symmetry {
+  for my $x (0..8) {
+    for my $y (0..8) {
+      for my $v (0..8) {
+        add_clause(-lit($x,$y,$v), lit(8-$x,8-$y,8-$v));
+      }
+    }
+  }
+}
+
+sub sudoku {
+  # Rows
+  for my $y (0..8) {
+    sudoku_excl(map {lit($_, $y)} (0..8));
+  }
+
+  # Columns
+  for my $x (0..8) {
+    sudoku_excl(map {lit($x, $_)} (0..8));
+  }
+
+  # Boxes
+  my @BOX_START = (0,3,6,27,30,33,54,57,60);
+  my @BOX_DELTA = (0,1,2,9,10,11,18,19,20);
+  for my $b (@BOX_START) {
+    sudoku_excl(map {$board + 9*($b + $_)} @BOX_DELTA);
+  }
+}
 
 # Cells well-defined
 for my $x (0..8) {
@@ -166,56 +269,129 @@ for my $x (0..8) {
   }
 }
 
-# Rows
-for my $y (0..8) {
-  sudoku_excl(map {lit($_, $y)} (0..8));
+my $snake = add_literals(9*9);
+my $snake_head = add_literals(9*9);
+
+sub neighbors {
+  my ($x) = @_;
+  my @out;
+  push @out, $x-1 if ($x % 9 > 0);
+  push @out, $x+1 if ($x % 9 < 8);
+  push @out, $x+9 if ($x + 9 < 81);
+  push @out, $x-9 if ($x - 9 >= 0);
+  return @out;
 }
 
-# Columns
-for my $x (0..8) {
-  sudoku_excl(map {lit($x, $_)} (0..8));
+#Snake rules
+for my $c (0..80) {
+  my @n = neighbors($c);
+  # snake -> at least one neighbor is snake
+  add_clause(-$snake-$c, map {$snake+$_} @n);
+  # snake -> at most two neighbors are snake
+  # snake -> at least n-2 neighbors are not snake
+  if (@n==3) {
+    add_clause(-$snake-$c, map {-$snake-$_} @n);
+  } elsif (@n==4) {
+    for my $i (0..$#n) {
+      add_clause(-$snake-$c, map {-$snake-$_} @n[0..$i-1, $i+1..$#n]);
+    }
+  }
+  # snake head -> snake
+  add_clause(-$snake_head-$c, $snake+$c);
+  # snake head -> at most one neighbor is snake
+  # snake_head && neighbor is snake -> other neighbor is not snake
+  for my $i (0..$#n-1) {
+    for my $j ($i+1..$#n) {
+      add_clause(-$snake_head-$c, -$snake-$n[$i], -$snake-$n[$j]);
+    }
+  }
+  # snake and not head -> at least two neighbors are snake
+  for my $i (0..$#n) {
+    add_clause(-$snake-$c, $snake_head+$c, map {$snake+$_} @n[0..$i-1, $i+1..$#n]);
+  }
+  # no 2x2 snake
+  for my $x (0..7) {
+    for my $y (0..7) {
+      $c = $x + $y * 9;
+      add_clause(-$snake-$c, -$snake-$c-1, -$snake-$c-9, -$snake-$c-10);
+    }
+  }
 }
 
-# Boxes
-my @BOX_START = (0,3,6,27,30,33,54,57,60);
-my @BOX_DELTA = (0,1,2,9,10,11,18,19,20);
-for my $b (@BOX_START) {
-  sudoku_excl(map {$board + 9*($b + $_)} @BOX_DELTA);
+# No Headless snakes
+my $HEAD_LITERAL_COUNT = 40;
+my $snake_head_dist = add_literals(9*9*$HEAD_LITERAL_COUNT);
+for my $c (0..80) {
+  for my $d (1..$HEAD_LITERAL_COUNT-1) {
+    # d_i -> snake
+  	add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, $snake+$c);
+  	# d_i _> some neighbor is d_(i-1)
+  	add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, map {$snake_head_dist+$_*$HEAD_LITERAL_COUNT+$d-1} neighbors($c));
+  	for my $d2 (0..$d-1) {
+  	  # d_i -> not d_(i-1), d_(i-2), ..
+  	  add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, -$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d2);
+  	}
+  }
+  # d_0 -> head
+  add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT, $snake_head+$c);
+  add_clause($snake_head_dist+$c*$HEAD_LITERAL_COUNT, -$snake_head-$c);
+  
+  # snake -> d_0 || d_1 || ...
+  add_clause(-$snake-$c, map {$snake_head_dist+$c*$HEAD_LITERAL_COUNT+$_} (0..$HEAD_LITERAL_COUNT-1))
 }
 
-
-# Knight's
-
-#for my $i (0..7) {
-#  for my $j (0..6) {
-#    for my $v (0..8) {
-#      add_clause(-lit($i,$j,$v), -lit($i+1,$j+2,$v));
-#      add_clause(-lit($j,$i,$v), -lit($j+2,$i+1,$v));
-#      add_clause(-lit(8-$i,$j,$v), -lit(8-($i+1),$j+2,$v));
-#      add_clause(-lit(8-$j,$i,$v), -lit(8-($j+2),$i+1,$v));
+# At most two snake heads
+#for my $c1 (0..78) {
+#  for my $c2 ($c1+1..79) {
+#    for my $c3 ($c2+1..80) {
+#      add_clause(-$snake_head-$c1,-$snake_head-$c2,-$snake_head-$c3)
 #    }
 #  }
 #}
 
-my @SHAPE1 = (9, 0, 1, 2, 3, 4, 5, 6, 7, 16, 17, 26, 35, 44, 53,
-			  62, 71, 70, 79, 78, 77, 76, 75, 74, 73, 64, 63, 54,
-			  45, 36, 27, 28, 19, 20, 21, 22, 23, 33, 42, 51, 59, 58,
-			  57, 47, 39, 40);
+# map snake to grid
+for my $c (0..80) {
+  # Snake -> Odd
+  add_clause($snake+$c, map {lit($c,0,$_)} (0,2,4,6,8)); 
+  # Not Snake -> even
+  add_clause(-$snake-$c, map {lit($c,0,$_)} (1,3,5,7)); 
+}
 
-shape_order(0,8,0,@SHAPE1);
-
-my @SHAPE2 = (18, 10, 11, 12, 13, 14, 15, 24, 25, 34, 43, 52, 61,
-              60, 69, 68, 67, 66, 65, 56, 55, 46, 37, 38, 29, 30,
-              31, 32, 41, 50, 49, 48);
-              
-shape_order(1,7,0,@SHAPE2);
+sudoku();
 
 ### Givens
 
-add_clause(lit(0,1,0));
-add_clause(lit(8,0,1));
-add_clause(lit(8,8,7));
-add_clause(lit(4,3,6));
+
+sub draw_board {
+  my %sol = map { abs($_) => ($_ > 0 ? 1 : 0) } @_;
+
+  for my $y (0..8) {
+    for my $x (0..8) {
+      for my $v (0..8) {
+        print $v+1 if $sol{lit($x,$y,$v)};
+      }
+      for my $d (0..$HEAD_LITERAL_COUNT-1) {
+        print "($d)" if $sol{$snake_head_dist+$y*9*$HEAD_LITERAL_COUNT+$x*$HEAD_LITERAL_COUNT+$d};
+      }
+      print "S" if $sol{$snake+$y*9+$x};
+      print "\t";
+    }
+    print "\n";
+  }
+  print "\n";
+}
+
+sub another_sol {
+  my @sol = @_;
+  my @save = (@CNF);
+  draw_board(@sol);
+  add_clause(map {$board<=abs($_) && abs($_)<$board+9*9*9 ? - $_ : ()} @sol);
+  my @out=solve();
+  draw_board(@out) if @out;
+  @CNF=@save;
+  return @out;
+}
+
 
 ### SOLVE
 
@@ -225,9 +401,9 @@ unless (@sol) {
   exit;
 }
 
-if (another_sol(@sol)) {
+if (my @sol2 = another_sol(@sol)) {
   print STDERR "Not unique!\n";
-  @sol = solve_all();
+  @sol = solve_all(@sol, @sol2);
   print STDERR "\n\n";
 }
 
