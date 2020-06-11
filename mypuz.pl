@@ -17,14 +17,25 @@ sub add_clause {
   push @CNF, \@c;
 }
 
+sub write_cnf {
+  my $wr = shift;
+  print $wr "p cnf $literal_count ", scalar @CNF, "\n";
+  for my $c (@CNF) {
+    print $wr join(' ', @$c), " 0\n";
+  }
+  close $wr;
+}
+
+sub out_cnf {
+  open(OUT, ">cnf");
+  write_cnf(\*OUT);
+  close(OUT);
+}
+
 sub solve {
   local (*rd, *wr);
   my $pid = open2(\*rd, \*wr, $SOLVER);
-  print wr "p cnf $literal_count ", scalar @CNF, "\n";
-  for my $c (@CNF) {
-    print wr join(' ', @$c), " 0\n";
-  }
-  close wr;
+  write_cnf(\*wr);
   waitpid($pid, 0);
   my @out;
   while (<rd>) {
@@ -179,7 +190,7 @@ sub knight_pairs {
       push @out, [lit(8-$j,$i), lit(8-($j+2),$i+1)];
     }
   }
-  return @out;
+  return \@out;
 }
 
 sub king_pairs {
@@ -190,7 +201,20 @@ sub king_pairs {
       push @out, [lit(8-$i,$j), lit(8-($i+1),$j+1)];
     }
   }
-  return @out;
+  return \@out;
+}
+
+sub queen_pairs {
+  my @out;
+  for my $i (0..7) {
+    for my $j (0..7) {
+      for my $k (1..8-($i > $j ? $i : $j)) {
+        push @out, [lit($i,$j), lit($i+$k,$j+$k)];
+        push @out, [lit(8-$i,$j), lit(8-($i+$k),$j+$k)];
+      }
+    }
+  }
+  return \@out;
 }
 
 sub ortho_pairs {
@@ -201,15 +225,50 @@ sub ortho_pairs {
       push @out, [lit($j,$i), lit($j,$i+1)];
     }
   }
-  return @out;
+  return \@out;
+}
+
+sub pawn_pairs {
+  my @out;
+  for my $y (1..8) {
+    for my $x (0..8) {
+      push @out, [lit($x,$y), lit($x-1,$y-1)] if ($x > 0);
+      push @out, [lit($x,$y), lit($x+1,$y-1)] if ($x < 8);
+    }
+  }
+  # Promotion
+  for my $x (0..8) {
+    # Queen
+    for my $z (1..8) {
+      push @out, [lit($x), lit($x-$z,$z)] if $x - $z >= 0; 
+      push @out, [lit($x), lit($x+$z,$z)] if $x + $z <= 8; 
+    }
+    next;
+    # Knight
+    push @out, [lit($x), lit($x-2,1)] if $x - 2 >= 0; 
+    push @out, [lit($x), lit($x-1,2)] if $x - 1 >= 0; 
+    push @out, [lit($x), lit($x+1,2)] if $x + 1 <= 8; 
+    push @out, [lit($x), lit($x+2,1)] if $x + 2 <= 8; 
+  }
+  return \@out;
 }
 
 sub not_same {
-  for my $group (@_) {
+  my $groups = shift;
+  my $digits = shift || [0..8];
+  my $others = shift;
+  my $rev = shift;
+  $rev = $others if (!defined($rev));
+  for my $group (@$groups) {
     for my $i (0..$#$group-1) {
       for my $j ($i+1..$#$group) {
-        for my $v (0..8) {
-          add_clause (-${$group}[$i]-$v, -${$group}[$j]-$v)
+        for my $v (@$digits) {
+          for my $v2 ($others ? @$others : ($v)) {
+            add_clause (-${$group}[$i]-$v, -${$group}[$j]-$v2);
+            if ($rev) {
+              add_clause (-${$group}[$i]-$v2, -${$group}[$j]-$v);
+            }
+          }
         }
       }
     }
@@ -217,11 +276,14 @@ sub not_same {
 }
 
 sub not_conseq {
-  for my $pair (@_) {
-  	my ($a, $b) = @$pair;
-    for my $v (0..7) {
-      add_clause (-$a-$v, -$b-$v-1);
-      add_clause (-$a-$v-1, -$b-$v);
+  my $groups = shift;
+  for my $group (@$groups) {
+    for my $i (0..$#$groups-1) {
+      my ($a, $b) = @{$groups}[$i,$i+1];
+      for my $v (0..7) {
+        add_clause (-$a-$v, -$b-$v-1);
+        add_clause (-$a-$v-1, -$b-$v);
+      }
     }
   }
 }
@@ -232,6 +294,17 @@ sub symmetry {
       for my $v (0..8) {
         add_clause(-lit($x,$y,$v), lit(8-$x,8-$y,8-$v));
       }
+    }
+  }
+}
+
+sub bishop {
+  my $digits = shift;
+  my @white = map {lit($_ * 2 + 1)} (0..39);
+  my @black = map {lit($_ * 2)} (0..40);
+  for my $d (@$digits) {
+    for my $c (@white) {
+      add_clause(-$c-$d);
     }
   }
 }
@@ -269,111 +342,43 @@ for my $x (0..8) {
   }
 }
 
-my $snake = add_literals(9*9);
-my $snake_head = add_literals(9*9);
-
-sub neighbors {
-  my ($x) = @_;
-  my @out;
-  push @out, $x-1 if ($x % 9 > 0);
-  push @out, $x+1 if ($x % 9 < 8);
-  push @out, $x+9 if ($x + 9 < 81);
-  push @out, $x-9 if ($x - 9 >= 0);
-  return @out;
-}
-
-#Snake rules
-for my $c (0..80) {
-  my @n = neighbors($c);
-  # snake -> at least one neighbor is snake
-  add_clause(-$snake-$c, map {$snake+$_} @n);
-  # snake -> at most two neighbors are snake
-  # snake -> at least n-2 neighbors are not snake
-  if (@n==3) {
-    add_clause(-$snake-$c, map {-$snake-$_} @n);
-  } elsif (@n==4) {
-    for my $i (0..$#n) {
-      add_clause(-$snake-$c, map {-$snake-$_} @n[0..$i-1, $i+1..$#n]);
-    }
-  }
-  # snake head -> snake
-  add_clause(-$snake_head-$c, $snake+$c);
-  # snake head -> at most one neighbor is snake
-  # snake_head && neighbor is snake -> other neighbor is not snake
-  for my $i (0..$#n-1) {
-    for my $j ($i+1..$#n) {
-      add_clause(-$snake_head-$c, -$snake-$n[$i], -$snake-$n[$j]);
-    }
-  }
-  # snake and not head -> at least two neighbors are snake
-  for my $i (0..$#n) {
-    add_clause(-$snake-$c, $snake_head+$c, map {$snake+$_} @n[0..$i-1, $i+1..$#n]);
-  }
-  # no 2x2 snake
-  for my $x (0..7) {
-    for my $y (0..7) {
-      $c = $x + $y * 9;
-      add_clause(-$snake-$c, -$snake-$c-1, -$snake-$c-9, -$snake-$c-10);
-    }
-  }
-}
-
-# No Headless snakes
-my $HEAD_LITERAL_COUNT = 40;
-my $snake_head_dist = add_literals(9*9*$HEAD_LITERAL_COUNT);
-for my $c (0..80) {
-  for my $d (1..$HEAD_LITERAL_COUNT-1) {
-    # d_i -> snake
-  	add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, $snake+$c);
-  	# d_i _> some neighbor is d_(i-1)
-  	add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, map {$snake_head_dist+$_*$HEAD_LITERAL_COUNT+$d-1} neighbors($c));
-  	for my $d2 (0..$d-1) {
-  	  # d_i -> not d_(i-1), d_(i-2), ..
-  	  add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d, -$snake_head_dist-$c*$HEAD_LITERAL_COUNT-$d2);
-  	}
-  }
-  # d_0 -> head
-  add_clause(-$snake_head_dist-$c*$HEAD_LITERAL_COUNT, $snake_head+$c);
-  add_clause($snake_head_dist+$c*$HEAD_LITERAL_COUNT, -$snake_head-$c);
-  
-  # snake -> d_0 || d_1 || ...
-  add_clause(-$snake-$c, map {$snake_head_dist+$c*$HEAD_LITERAL_COUNT+$_} (0..$HEAD_LITERAL_COUNT-1))
-}
-
-# At most two snake heads
-#for my $c1 (0..78) {
-#  for my $c2 ($c1+1..79) {
-#    for my $c3 ($c2+1..80) {
-#      add_clause(-$snake_head-$c1,-$snake_head-$c2,-$snake_head-$c3)
-#    }
-#  }
-#}
-
-# map snake to grid
-for my $c (0..80) {
-  # Snake -> Odd
-  add_clause($snake+$c, map {lit($c,0,$_)} (0,2,4,6,8)); 
-  # Not Snake -> even
-  add_clause(-$snake-$c, map {lit($c,0,$_)} (1,3,5,7)); 
-}
-
 sudoku();
 
-### Givens
+# Bishops must be on white square
+bishop([5,6]);
+# Knights cannot attack opponent knights or the king
+not_same(knight_pairs(), [3], [4,7]);
+not_same(knight_pairs(), [4], [3,7]);
+# Queens cannot attack queens
+not_same(queen_pairs(), [8]);
+# Kings cannot attack kings
+not_same(king_pairs(), [7]);
+# Pawns cannot attack other pawns or kings
+not_same(pawn_pairs(), [0], [0,7], 0);
 
+### Givens
+add_clause(lit(0,8,1));
+add_clause(lit(1,8,3));
+add_clause(lit(2,8,5));
+add_clause(lit(3,8,8));
+#add_clause(lit(8,8,8));
+add_clause(lit(0,7,0));
+#add_clause(lit(0,1,7));
+#add_clause(lit(7,0,7));
+#add_clause(lit(1,5,0));
+#add_clause(-lit(2,7,5));
+add_clause(lit(2,5,4));
+add_clause(lit(0,4,8));
 
 sub draw_board {
+  my @LABELS=qw/♙1 ♖2 ♜3 ♘4 ♞5 ♗6 ♝7 ♔8 ♕9/;
   my %sol = map { abs($_) => ($_ > 0 ? 1 : 0) } @_;
 
   for my $y (0..8) {
     for my $x (0..8) {
       for my $v (0..8) {
-        print $v+1 if $sol{lit($x,$y,$v)};
+        print $LABELS[$v] if $sol{lit($x,$y,$v)};
       }
-      for my $d (0..$HEAD_LITERAL_COUNT-1) {
-        print "($d)" if $sol{$snake_head_dist+$y*9*$HEAD_LITERAL_COUNT+$x*$HEAD_LITERAL_COUNT+$d};
-      }
-      print "S" if $sol{$snake+$y*9+$x};
       print "\t";
     }
     print "\n";
@@ -394,6 +399,8 @@ sub another_sol {
 
 
 ### SOLVE
+
+out_cnf();
 
 my @sol=solve();
 unless (@sol) {
