@@ -1,0 +1,109 @@
+array8<array8<int4>> board;
+array6<array8<array2<int4>>> boxes;
+array8<array8<bool>> water;
+array6<int4> boxWaterLevel;
+
+function^ main() {
+  board.each(*validCollection?);
+  board.transpose.each(*validCollection?);
+
+  boxes.each(function(box) {
+    box.each(function(coords) {
+      invariant !(coords[0] == 4 && coords[1] == 4);
+      coords.each(function(coord) {
+	invariant coord.between?(1,7);
+      });
+    });  
+  });
+
+  boxes.each(*assertSorted);
+
+  invariant boxes.flatten.uniq?;
+  boxes.each(*conseq);
+
+  boxes.map(*getGroup).each(*validCollection?);
+  invariant water[0].all?(*empty?);
+  invariant water.transpose[0].all?(*empty?);
+
+  waterValuesOK(board, water);
+  waterValuesOK(board.transpose, water.transpose);
+
+  invariant boxWaterLevel.all?(*valueValid?);
+  boxes.each(function^ (box, index) {
+    checkWater(box, boxWaterLevel[index], water);
+  });
+
+  expose board;
+  expose boxes;
+  expose water;
+};
+
+function validCollection?(collection) {
+  invariant collection.uniq?;
+  invariant collection.all?(*valueValid?);
+};
+
+function valueValid?(value) {
+  return value.between?(0,7);
+};
+
+function^ getGroup(box) {
+  return box.map(function^(coords) {
+    return board[coords[0]][coords[1]];
+  });
+};
+
+function flatten(arr) {
+  flat = [];
+
+  arr.each(function^ (nested) {
+    nested.each(function^ (element) {
+      flat = flat.push(element);
+    });
+  });
+  return flat;
+};
+
+function empty?(w) {
+  return !w;
+};
+
+function waterValuesOK(board, water) {
+  board.each(function^ (row, index) {
+    waterRow = water[index];
+    waterTotal = waterRow.map(function (w) {
+      return w.if(1, 0);
+    }).sum;
+    invariant waterTotal == row[0];
+  });
+};
+
+function checkWater(box, waterLevel, water) {
+  box.each(function^ (coords) {
+    row, col = coords[0], coords[1];
+    underWater = row > waterLevel;
+    invariant water[row][col] == underWater;
+  });
+};
+
+function assertSorted(box) {
+  box.eachCons(2, function (coordPair) {
+    invariant (coordPair[0][0] < coordPair[1][0]) ||
+    	      ((coordPair[0][0] == coordPair[1][0]) && (coordPair[0][1] < coordPair[1][1]));
+  });
+};
+
+function conseq(box) {
+  return box.each(function^(c1,i1) {
+    invariant i1 == 7 || box.map(function^(c2,i2) {
+      return i1 < i2 && adjacent?(c1,c2);
+    }).include?(true);
+  });
+};
+
+function adjacent?(c1, c2) {
+  return (abs(c1[0] - c2[0]) == 1 && c1[1] == c2[1]) ||
+         (abs(c1[1] - c2[1]) == 1 && c1[0] == c2[0]);
+};
+
+main();
