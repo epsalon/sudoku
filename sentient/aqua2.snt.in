@@ -1,0 +1,140 @@
+[[[
+use POSIX;
+$SIZE=7;
+$BITS=ceil(log($SIZE)/log(2)) + 1;
+$SUMBITS=ceil(log($SIZE*($SIZE+1))/log(2));
+$BOXCOUNT = $SIZE-2;
+$CENTER = int($SIZE/2);
+]]]
+
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> board;
+array{{$BOXCOUNT}}<array{{$SIZE}}<array2<int{{$BITS}}>>> boxes;
+array{{$SIZE}}<array{{$SIZE}}<bool>> water;
+array{{$BOXCOUNT}}<int{{$BITS}}> boxWaterLevel;
+array{{$BOXCOUNT}}<int{{$SUMBITS}}> boxWaterTotal;
+
+int{{$BITS}} cx;
+int{{$BITS}} cy;
+
+{{
+($SIZE & 1) ? "invariant cx.between?(1,".($SIZE - 1).");\ninvariant cy.between?(1,".($SIZE - 1).");\n" : "invariant cx == $CENTER;\ninvariant cy == $CENTER;\n"
+}}
+
+function^ main() {
+  board.each(*validCollection?);
+  board.transpose.each(*validCollection?);
+  boxes.each(function^(box) {
+    box.each(function^(coords) {
+      invariant !(coords[0] == cx && coords[1] == cy);
+      coords.each(function(coord) {
+	invariant coord.between?(1,{{$SIZE - 1}});
+      });
+    });  
+  });
+
+  boxes.each(*assertSorted);
+  invariant boxes.flatten.uniq?;
+  boxes.each(*conseq);
+
+  boxes.map(*getGroup).each(*validCollection?);
+  invariant water[0].all?(*empty?);
+  invariant water.transpose[0].all?(*empty?);
+
+  waterValuesOK(board, water);
+  waterValuesOK(board.transpose, water.transpose);
+
+  invariant boxWaterLevel.all?(*validWaterLevel?);
+  boxes.each(function^ (box, index) {
+    checkWater(box, boxWaterLevel[index], water);
+  });
+
+  boxes.each(function^ (box, index) {
+    invariant boxWaterTotal[index] == waterTotal(box, board, water);
+  });
+
+  expose board;
+  expose boxes;
+  expose water;
+  expose boxWaterTotal;
+};
+
+function validCollection?(collection) {
+  invariant collection.uniq?;
+  invariant collection.all?(*valueValid?);
+};
+
+function valueValid?(value) {
+  return value.between?(1,{{$SIZE}});
+};
+
+function validWaterLevel?(value) {
+  return value.between?(0,{{$SIZE-1}});
+};
+
+function^ getGroup(box) {
+  return box.map(function^(coords) {
+    return board[coords[0]][coords[1]];
+  });
+};
+
+function flatten(arr) {
+  flat = [];
+
+  arr.each(function^ (nested) {
+    nested.each(function^ (element) {
+      flat = flat.push(element);
+    });
+  });
+  return flat;
+};
+
+function empty?(w) {
+  return !w;
+};
+
+function waterValuesOK(board, water) {
+  board.each(function^ (row, index) {
+    waterRow = water[index];
+    waterTotal = waterRow.map(function (w) {
+      return w.if(1, 0);
+    }).sum;
+    invariant waterTotal == row[0] || index == 0;
+  });
+};
+
+function checkWater(box, waterLevel, water) {
+  box.each(function^ (coords) {
+    row, col = coords[0], coords[1];
+    underWater = row > waterLevel;
+    invariant water[row][col] == underWater;
+  });
+};
+
+function waterTotal(box, board, water) {
+  return box.map(function^ (coords) {
+    row, col = coords[0], coords[1];
+    return water[row][col] ? board[row][col] : 0;
+  }).sum;
+};
+
+function assertSorted(box) {
+  box.eachCons(2, function (coordPair) {
+    invariant (coordPair[0][0] < coordPair[1][0]) ||
+    	      ((coordPair[0][0] == coordPair[1][0]) && (coordPair[0][1] < coordPair[1][1]));
+  });
+};
+
+function conseq(box) {
+  return box.each(function^(c1,i1) {
+    invariant i1 == {{$SIZE - 1}} || box.map(function^(c2,i2) {
+      return i1 < i2 && adjacent?(c1,c2);
+    }).include?(true);
+  });
+};
+
+function adjacent?(c1, c2) {
+  return (abs(c1[0] - c2[0]) == 1 && c1[1] == c2[1]) ||
+         (abs(c1[1] - c2[1]) == 1 && c1[0] == c2[0]);
+};
+
+main();
