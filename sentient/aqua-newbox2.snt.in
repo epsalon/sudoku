@@ -1,0 +1,228 @@
+[[[
+use POSIX;
+$SIZE=7;
+$BITS=ceil(log($SIZE)/log(2)) + 1;
+$WLBITS=ceil(log($SIZE + 1)/log(2)) + 1;
+$SUMBITS=ceil(log($SIZE*($SIZE+1))/log(2));
+$BOXCOUNT = $SIZE;
+$CENTER = int($SIZE/2);
+]]]
+
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> board;
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> boxes;
+array{{$SIZE}}<array{{$SIZE}}<bool>> water;
+array{{$BOXCOUNT}}<int{{$WLBITS}}> boxWaterLevel;
+#array{{$BOXCOUNT}}<int{{$SUMBITS}}> boxWaterTotal;
+
+function^ main() {
+  board.each(*validCollection?);
+  board.transpose.each(*validCollection?);
+
+  boxes.each(function^(row) {
+    row.each(function^(boxId) {
+      invariant boxId.validBoxNumber?;
+    });  
+  });
+
+  {{$BOXCOUNT}}.times(function^(boxId) {
+    boxes.getGroup(boxId).validCollection?;
+  });
+
+  boxes.boxesContiguous;
+  #boxes.flatten.lastOccs.assertSorted;
+  invariant boxes[0][0] == 0;
+  invariant boxes[{{$SIZE-1}}][{{$SIZE-1}}] == {{$BOXCOUNT-1}};
+
+  waterValuesOK(board, water);
+  waterValuesOK(board.transpose, water.transpose);
+
+  invariant boxWaterLevel.all?(*validWaterLevel?);
+  boxes.checkWater(boxWaterLevel, water);
+
+  #{{$BOXCOUNT}}.times(function^ (boxId) {
+  #  invariant boxWaterTotal[boxId] == waterTotal(boxes, boxId, board, water);
+  #});
+
+  expose board;
+  expose boxes;
+  expose water;
+  #expose boxWaterTotal;
+};
+
+function validCollection?(collection) {
+  invariant collection.uniq?;
+  invariant collection.all?(*valueValid?);
+};
+
+function valueValid?(value) {
+  return value.between?(0,{{$SIZE-1}});
+};
+
+function validWaterLevel?(value) {
+  return value.between?(0,{{$SIZE}});
+};
+
+function validBoxNumber?(value) {
+  return value.between?(0,{{$BOXCOUNT-1}});
+};
+
+function flatten(arr) {
+  flat = [];
+
+  arr.each(function^ (nested) {
+    nested.each(function^ (element) {
+      flat = flat.push(element);
+    });
+  });
+  return flat;
+};
+
+function^ getGroup(boxes, boxId) {
+  return board.flatten.select(function^(el, idx) {
+    row, col = idx.divmod({{$SIZE}});
+    return boxes[row][col] == boxId;
+  });
+};
+
+function empty?(w) {
+  return !w;
+};
+
+function waterValuesOK(board, water) {
+  board.each(function^ (row, index) {
+    waterRow = water[index];
+    waterTotal = waterRow.map(function (w) {
+      return w.if(1, 0);
+    }).sum;
+    invariant waterTotal == row[0];
+  });
+};
+
+function checkWater(boxes, waterLevels, water) {
+  boxes.each(function^ (row, rowIdx) {
+    row.each(function^ (boxId, colIdx) {
+      underWater = rowIdx >= waterLevels[boxId];
+      invariant water[rowIdx][colIdx] == underWater;
+    });
+  });
+};
+
+function waterTotal(boxes, boxId, board, water) {
+  int{{$SUMBITS}} s;
+  s = 0;
+  boxes.each(function^ (rowArr, row) {
+    rowArr.each(function^ (id, col) {
+        s += (id == boxId && water[row][col] ? board[row][col] : 0);
+    });
+  });
+  return s;
+};
+
+function lessThan(c1, c2) {
+  return (c1[0] < c2[0]) ||
+    	 ((c1[0] == c2[0]) && (c1[1] < c2[1]));
+};
+
+function assertFirstMin(box) {
+  box.each(function^ (coord, i) {
+    invariant i == 0 || box[0].lessThan(coord);
+  });
+};
+
+function assertSorted(list) {
+  list.eachCons(2, function (pair) {
+    invariant pair[0] < pair[1];
+  });
+};
+
+function boxesContiguous(grid) {
+  # Compute this once before the loop.
+  quads = grid.quadChunks;
+
+  {{$BOXCOUNT}}.times(function^ (digit) {
+    # The digit should appear as a single contiguous region in the grid.
+    invariant grid.adjacencyCount(quads, digit) + 1 == {{$SIZE}};
+  });
+};
+
+# Return all 2x2 quads in the grid, chunked by rows.
+function quadChunks(grid) {
+  chunks = [];
+
+  grid.eachCons(2, function^ (rowPair) {
+    quads = [];
+
+    # TODO: test if there's any performance hit of using #times
+    rowPair.first.eachCons(2, function^ (topPair, indexes) {
+      topLeft = topPair[0];
+      topRight = topPair[1];
+      botLeft = rowPair.last[indexes[0]];
+      botRight = rowPair.last[indexes[1]];
+
+      quads = quads.push([topLeft, topRight, botLeft, botRight]);
+    });
+
+    chunks = chunks.push(quads);
+  });
+
+  return chunks;
+};
+
+# Count how many times a digit is next to the same digit in the grid. When one
+# is below and right of others, we have to be careful not to double count it.
+function adjacencyCount(grid, quads, digit) {
+  digit2 = [digit, digit];
+  digit4 = [digit, digit, digit, digit];
+
+  count = quads.map(function^ (chunk) {
+    topMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.topRight] == digit2;
+    });
+
+    leftMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.botLeft] == digit2;
+    });
+
+    rightPair = [chunk.last.topRight, chunk.last.botRight];
+    rightMatches = rightPair == digit2 ? 1 : 0;
+
+    doubleCounts = chunk.countBy(function^ (quad) {
+        return quad == digit4;
+    });
+
+    return topMatches + leftMatches + rightMatches - doubleCounts;
+  }).sum;
+
+  # Check for matches on the bottom row of the grid.
+  grid.last.eachCons(2, function^ (pair) {
+    count += pair == digit2 ? 1 : 0;
+  });
+
+  return count;
+};
+
+
+# Some convenience methods for working with quads.
+function topLeft(quad)  { return quad[0]; };
+function topRight(quad) { return quad[1]; };
+function botLeft(quad)  { return quad[2]; };
+function botRight(quad) { return quad[3]; };
+
+function lastOcc(arr, val) {
+  int{{$BITS}} o;
+  o = -1;
+  arr.each(function^(el, idx) {
+    o = if(el == val, idx, o);
+  });
+  return o;
+};
+
+function lastOccs(arr) {
+  out = [];
+  {{$BOXCOUNT}}.times(function^ (i) {
+    out = push(out, lastOcc(arr, i));
+  });
+  return out;
+};
+
+main();

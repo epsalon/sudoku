@@ -1,0 +1,52 @@
+[[[
+use POSIX;
+$SIZE=3;
+$BOXCOUNT = 3;
+]]]
+
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> boxMap;
+
+function^ main() {
+  boxMap.each(function(row){
+    invariant row.all?(*validBoxNumber?);
+  });
+
+  boxes = getBoxes(boxMap);
+
+  #boxes.each(*conseq);
+
+  expose boxMap;
+  expose boxes;
+};
+
+function getBoxes(boxMap) {
+  return [{{join(",",0..$BOXCOUNT-1)}}].map(function^(i){
+    boxArr = [];
+    boxMap.each(function^(row, rowIndex){
+      row.each(function^(val, colIndex){
+	boxArr = if(val == i, boxArr.push(buildArray(rowIndex,colIndex)), boxArr);
+      });
+    });
+    return boxArr;
+  });
+};
+
+function validBoxNumber?(value) {
+  return value.between?(0,{{$BOXCOUNT - 1}});
+};
+
+
+function conseq(box) {
+  return box.each(function^(c1,i1) {
+    invariant i1 == {{$SIZE - 1}} || box.map(function^(c2,i2) {
+      return i1 < i2 && adjacent?(c1,c2);
+    }).include?(true);
+  });
+};
+
+function adjacent?(c1, c2) {
+  return (abs(c1[0] - c2[0]) == 1 && c1[1] == c2[1]) ||
+         (abs(c1[1] - c2[1]) == 1 && c1[0] == c2[0]);
+};
+
+main();

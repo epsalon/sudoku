@@ -1,0 +1,252 @@
+[[[
+$SIZE=6;
+$BITS=bits($SIZE);
+$WLBITS=bits($SIZE + 1);
+$SUMBITS=bits($SIZE*$SIZE);
+$BOXCOUNT = $SIZE;
+$CENTER = int($SIZE/2);
+]]]
+
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> board;
+array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> boxes;
+array{{$SIZE}}<array{{$SIZE}}<bool>> water;
+array{{$BOXCOUNT}}<int{{$WLBITS}}> boxWaterLevel;
+array{{$BOXCOUNT}}<int{{$SUMBITS}}> boxWaterTotal;
+
+function^ main() {
+  board.each(*validCollection?);
+  invariant board.transpose.all?(*uniq?);
+
+  groupUniq(boxes, board);
+
+  waterValuesOK(board, water);
+  waterValuesOK(board.transpose, water.transpose);
+
+  invariant boxWaterLevel.all?(*validWaterLevel?);
+  boxes.checkWater(boxWaterLevel, water);
+
+  {{$BOXCOUNT}}.times(function^ (boxId) {
+    invariant boxWaterTotal[boxId] == waterTotal(boxes, boxId, board, water);
+  });
+
+  expose boxes;
+  expose board;
+  expose water;
+  expose boxWaterTotal;
+};
+
+function validCollection?(collection) {
+  invariant collection.uniq?;
+  invariant collection.all?(*valueValid?);
+};
+
+function valueValid?(value) {
+  return value.between?(0,{{$SIZE-1}});
+};
+
+function validWaterLevel?(value) {
+  return value.between?(0,{{$SIZE}});
+};
+
+function validBoxNumber?(value) {
+  return value.between?(0,{{$BOXCOUNT-1}});
+};
+
+function flatten(arr) {
+  flat = [];
+
+  arr.each(function^ (nested) {
+    nested.each(function^ (element) {
+      flat = flat.push(element);
+    });
+  });
+  return flat;
+};
+
+function getGroup(flatBoxes, flatBoard, boxId) {
+  return flatBoard.select(function^(el, idx) {
+    return flatBoxes[idx] == boxId;
+  });
+};
+
+function groupUniq(boxes, board) {
+{{
+  my @ALL_COORDS;
+  for my $r (0..$SIZE-1) {
+    for my $c (0..$SIZE-1) {
+      push @ALL_COORDS, [$r,$c];
+    }
+  }
+  my @COORD_COMBS=();
+  for my $c1 (0..$#ALL_COORDS-1) {
+    for my $c2 ($c1+1 .. $#ALL_COORDS) {
+      push @COORD_COMBS, [@{$ALL_COORDS[$c1]}, @{$ALL_COORDS[$c2]}];
+    }
+  }
+  my $out;
+  for my $cc (@COORD_COMBS) {
+    my ($a,$b,$c,$d) = @$cc;
+    $out.="  invariant board[$a][$b] != board[$c][$d] || boxes[$a][$b] != boxes[$c][$d];\n";
+  }
+  $out
+}}
+};
+
+function empty?(w) {
+  return !w;
+};
+
+function waterValuesOK(board, water) {
+  board.each(function^ (row, index) {
+    waterRow = water[index];
+    waterTotal = waterRow.map(function (w) {
+      return w.if(1, 0);
+    }).sum;
+    invariant waterTotal == row[0];
+  });
+};
+
+function checkWater(boxes, waterLevels, water) {
+  boxes.each(function^ (row, rowIdx) {
+    row.each(function^ (boxId, colIdx) {
+      underWater = rowIdx >= waterLevels[boxId];
+      invariant water[rowIdx][colIdx] == underWater;
+    });
+  });
+};
+
+function waterTotal(boxes, boxId, board, water) {
+  int{{$SUMBITS}} s;
+  s = 0;
+  boxes.each(function^ (rowArr, row) {
+    rowArr.each(function^ (id, col) {
+        s += (id == boxId && water[row][col] ? board[row][col] : 0);
+    });
+  });
+  return s;
+};
+
+function lessThan(c1, c2) {
+  return (c1[0] < c2[0]) ||
+    	 ((c1[0] == c2[0]) && (c1[1] < c2[1]));
+};
+
+function assertFirstMin(box) {
+  box.each(function^ (coord, i) {
+    invariant i == 0 || box[0].lessThan(coord);
+  });
+};
+
+function assertSorted(list) {
+  list.eachCons(2, function (pair) {
+    invariant pair[0] < pair[1];
+  });
+};
+
+function boxesContiguous(grid) {
+  # Compute this once before the loop.
+  quads = grid.quadChunks;
+
+  {{$BOXCOUNT}}.times(function^ (digit) {
+    # The digit should appear as a single contiguous region in the grid.
+    invariant grid.adjacencyCount(quads, digit) + 1 == {{$SIZE}};
+  });
+};
+
+# Return all 2x2 quads in the grid, chunked by rows.
+function quadChunks(grid) {
+  chunks = [];
+
+  grid.eachCons(2, function^ (rowPair) {
+    quads = [];
+
+    # TODO: test if there's any performance hit of using #times
+    rowPair.first.eachCons(2, function^ (topPair, indexes) {
+      topLeft = topPair[0];
+      topRight = topPair[1];
+      botLeft = rowPair.last[indexes[0]];
+      botRight = rowPair.last[indexes[1]];
+
+      quads = quads.push([topLeft, topRight, botLeft, botRight]);
+    });
+
+    chunks = chunks.push(quads);
+  });
+
+  return chunks;
+};
+
+# Count how many times a digit is next to the same digit in the grid. When one
+# is below and right of others, we have to be careful not to double count it.
+function adjacencyCount(grid, quads, digit) {
+  digit2 = [digit, digit];
+  digit4 = [digit, digit, digit, digit];
+
+  count = quads.map(function^ (chunk) {
+    topMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.topRight] == digit2;
+    });
+
+    leftMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.botLeft] == digit2;
+    });
+
+    rightPair = [chunk.last.topRight, chunk.last.botRight];
+    rightMatches = rightPair == digit2 ? 1 : 0;
+
+    doubleCounts = chunk.countBy(function^ (quad) {
+        return quad == digit4;
+    });
+
+    return topMatches + leftMatches + rightMatches - doubleCounts;
+  }).sum;
+
+  # Check for matches on the bottom row of the grid.
+  grid.last.eachCons(2, function^ (pair) {
+    count += pair == digit2 ? 1 : 0;
+  });
+
+  return count;
+};
+
+# Count how many times digit appears in the grid.
+function numberOf(grid, digit) {
+  return grid.map(function^ (row) {
+    return row.countBy(function^ (d) {
+      return d == digit;
+    });
+  }).sum;
+};
+
+# Some convenience methods for working with quads.
+function topLeft(quad)  { return quad[0]; };
+function topRight(quad) { return quad[1]; };
+function botLeft(quad)  { return quad[2]; };
+function botRight(quad) { return quad[3]; };
+
+function firstOcc(arr, val) {
+  int{{$SUMBITS}} o;
+  o = -1;
+  arr.reverse.each(function^(el, idx) {
+    o = if(el == val, idx, o);
+  });
+  return o;
+};
+
+function firstOccs(arr) {
+  out = [];
+  {{$BOXCOUNT}}.times(function^ (i) {
+    out = push(out, firstOcc(arr, i));
+  });
+  return out;
+};
+
+function allTheSame?(arr) {
+  ret = true;
+  arr.eachCons(2, function^ (pair){
+    ret=ret && pair[0] == pair[1];
+  });
+  return ret;
+};
+
+main();

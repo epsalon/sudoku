@@ -24,16 +24,24 @@ while (<>) {
   my $WATER_COLOR="blue";
   my $NOWATER_COLOR="black";
 
-  my @bx;
+  last unless $sol{boxes};
+
+  my @bx=@{$sol{boxes}};
   my @boxboard;
-  my $i=0;
-  for my $b (@{$sol{boxes}}) {
-      my $color = shift @BOX_COLORS;
-      for my $coord (@$b) {
-	  $boxboard[$coord->[0]][$coord->[1]] = $color;
-	  $bx[$coord->[0]][$coord->[1]]=$i+1;
+  #my $i=0;
+  #for my $b (@{$sol{boxes}}) {
+  #    my $color = shift @BOX_COLORS;
+  #    for my $coord (@$b) {
+  #       $boxboard[$coord->[0]][$coord->[1]] = $color;
+  #      $bx[$coord->[0]][$coord->[1]]=$i+1;
+  #    }
+  #    $i++;
+  #}
+  for my $r (0..$#bx) {
+      for my $c (0..$#bx) {
+	  $boxboard[$r][$c]=$BOX_COLORS[$bx[$r][$c]];
+	  $bx[$r][$c]++;
       }
-      $i++;
   }
 
   # corner(0,0,1,1) - corner(0,1,1,bx[0][0] != bx[0][1]) - corner(0,1,1,bx[0][1] != bx[0][2]) .. corner(0,1,1,bx[0][$# - 1] != bx[0][$#]) - corner(0,1,0,1)
@@ -60,22 +68,33 @@ while (<>) {
       my $r = shift;
       my $vb = shift;
       my $hb = shift;
+      my $bb = shift;
       for my $c (0..$#bx + 1) {
 	  print corner($vb->[$r][$c], $hb->[$r][$c], $hb->[$r][$c+1],$vb->[$r+1][$c]);
-	  my $border = $HORIZ_BORDER[$hb->[$r][$c+1]];
-	  print $border x 11 unless ($c > $#bx);
+	  my $is_border = $hb->[$r][$c+1];
+	  my $border = $HORIZ_BORDER[$is_border];
+	  if ($is_border) {
+	      print $border x 11 unless ($c > $#bx);
+	  } else {
+	      my $bg_color = $bb->[$r][$c] || "on_black";
+	      print colored($border x 11, $bg_color) unless ($c > $#bx);
+	  }
       }
       print "\n";
   }
 
   for my $r (0..$#{$sol{board}}) {
-      box_row($r, \@vert_borders, \@horiz_borders);
+      box_row($r, \@vert_borders, \@horiz_borders, \@boxboard);
       for my $c (0..$#{$sol{board}->[0]}) {
 	  my $water = $sol{water}[$r][$c];
 	  my $wch = $water ? '~' : ' ';
 	  my $fg_color = $water ? $WATER_COLOR : $NOWATER_COLOR;
 	  my $bg_color = $boxboard[$r][$c] || $NOBOX_COLOR;
-	  print $VERT_BORDER[$vert_borders[$r+1][$c]];
+	  if ($vert_borders[$r+1][$c]) {
+	      print $VERT_BORDER[1];
+	  } else {
+	      print colored($VERT_BORDER[0], $bg_color);
+	  }
 	  print colored(" $wch ".$sol{board}[$r][$c]." [".($bx[$r][$c] || ' ')."] $wch ", $fg_color, $bg_color);
       }
       print $VERT_BORDER[$vert_borders[$r+1][$#{$sol{board}->[0]}+1]];
