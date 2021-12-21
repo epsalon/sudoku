@@ -151,19 +151,19 @@ while (@cnf) {
     }
   }
   # Try short chains
-  for my $l (keys %all_lits) {
-    next if ($l < 0);
-    unless ($assertions{$l}) {
-      assume($l);
-      my $p = propagate();
-      pop_state();
-      unless ($p) {
-        print "SHORT CHAIN: ",-$l,"\n";
-        assert(-$l);
-        draw_board(keys %assertions);
-      }
-    }
-  }
+  #for my $l (keys %all_lits) {
+  #  next if ($l < 0);
+  #  unless ($assertions{$l}) {
+  #    assume($l);
+  #    my $p = propagate();
+  #    pop_state();
+  #    unless ($p) {
+  #      print "SHORT CHAIN: ",-$l,"\n";
+  #      assert(-$l);
+  #      draw_board(keys %assertions);
+  #    }
+  #  }
+  #}
   draw_board(keys %assertions);
   last unless (@cnf);
   print "Which literal to try?\n";

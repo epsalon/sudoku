@@ -19,14 +19,29 @@ while (<>) {
   my $sol = decode_json($_);
   my %sol = %$sol;
 
-  my @BOX_COLORS=qw/on_red on_green on_yellow on_magenta on_cyan on_bright_black on_bright_red/;
+  my @BOX_COLORS=qw/on_red on_green on_yellow on_magenta on_cyan on_bright_black on_bright_red on_bright_yellow on_bright_cyan/;
   my $NOBOX_COLOR="on_white";
   my $WATER_COLOR="blue";
   my $NOWATER_COLOR="black";
 
-  last unless $sol{boxes};
+  last unless $sol{boxes} || $sol{sudoku};
+  my @board;
 
-  my @bx=@{$sol{boxes}};
+  if ($sol{board}) {
+      @board = @{$sol{board}};
+  } elsif ($sol{sudoku}) {
+      @board = @{$sol{sudoku}};
+  } else {
+      push @board, $sol{horizPerm};
+      for my $i (1..$#{$sol{vertPerm}}) {
+	  $board[$i][0] = $sol{vertPerm}[$i];
+	  for my $j (1..$#{$sol{horizPerm}}) {
+	      $board[$i][$j] = ' ';
+	  };
+      }
+  }
+
+  my @bx=$sol{boxes} ? @{$sol{boxes}} : ();
   my @boxboard;
   #my $i=0;
   #for my $b (@{$sol{boxes}}) {
@@ -83,9 +98,9 @@ while (<>) {
       print "\n";
   }
 
-  for my $r (0..$#{$sol{board}}) {
+  for my $r (0..$#board) {
       box_row($r, \@vert_borders, \@horiz_borders, \@boxboard);
-      for my $c (0..$#{$sol{board}->[0]}) {
+      for my $c (0..$#{$board[0]}) {
 	  my $water = $sol{water}[$r][$c];
 	  my $wch = $water ? '~' : ' ';
 	  my $fg_color = $water ? $WATER_COLOR : $NOWATER_COLOR;
@@ -95,11 +110,11 @@ while (<>) {
 	  } else {
 	      print colored($VERT_BORDER[0], $bg_color);
 	  }
-	  print colored(" $wch ".$sol{board}[$r][$c]." [".($bx[$r][$c] || ' ')."] $wch ", $fg_color, $bg_color);
+	  print colored(" $wch ".$board[$r][$c]." [".($bx[$r][$c] || ' ')."] $wch ", $fg_color, $bg_color);
       }
-      print $VERT_BORDER[$vert_borders[$r+1][$#{$sol{board}->[0]}+1]];
+      print $VERT_BORDER[$vert_borders[$r+1][$#{$board[0]}+1]];
       print "\n";
   }
-  box_row(scalar(@{$sol{board}}), \@vert_borders, \@horiz_borders);
+  box_row(scalar(@board), \@vert_borders, \@horiz_borders);
   print "\n\n";
 }

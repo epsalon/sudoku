@@ -1,5 +1,6 @@
 use strict;
 use IPC::Open2;
+use Data::Dumper;
 
 my $SOLVER=shift || "docker run --rm -i msoos/cryptominisat";
 
@@ -278,12 +279,27 @@ sub not_same {
 sub not_conseq {
   my $groups = shift;
   for my $group (@$groups) {
-    for my $i (0..$#$groups-1) {
-      my ($a, $b) = @{$groups}[$i,$i+1];
+    for my $i (0..$#$group-1) {
+      my ($a, $b) = @{$group}[$i,$i+1];
       for my $v (0..7) {
         add_clause (-$a-$v, -$b-$v-1);
         add_clause (-$a-$v-1, -$b-$v);
       }
+    }
+  }
+}
+
+sub diff5 {
+  my $group = shift;
+  for my $i (0..$#$group-1) {
+    my ($a, $b) = @{$group}[$i,$i+1];
+    for my $v1 (0..8) {
+	for my $v2 ($v1..$v1+4) {
+	    last if ($v2 > 8);
+	    add_clause(-$a-$v1,-$b-$v2);
+	    add_clause(-$a-$v2,-$b-$v1);
+	    print STDERR "a=$a b=$b v1=$v1 v2=$v2\n";
+	}
     }
   }
 }
@@ -343,24 +359,33 @@ for my $x (0..8) {
 }
 
 sudoku();
+not_same(knight_pairs());
+my @SHAPE1=([1,0],[1,1],[2,2],[3,3],[3,4],[3,5],[3,6],[3,7],[2,7]);
+diff5([map {lit(@$_)} @SHAPE1]);
+diff5([map {lit(8 - $_->[0], $_->[1])} @SHAPE1]);
 
 # Manhattan
-for my $c1 (0..79) {
-  for my $c2 ($c1+1..80) {
-    my $dx = abs($c1%9 - $c2%9);
-    my $dy = int($c2/9) - int($c1/9);
-    my $d = $dx + $dy;
-    next if ($d > 9 || !$dx || !$dy);
-    add_clause(-lit($c1,0,$d-1),-lit($c2,0,$d-1));
-  }
-}
+#for my $c1 (0..79) {
+#  for my $c2 ($c1+1..80) {
+#    my $dx = abs($c1%9 - $c2%9);
+#    my $dy = int($c2/9) - int($c1/9);
+#    my $d = $dx + $dy;
+#    next if ($d > 9 || !$dx || !$dy);
+#    add_clause(-lit($c1,0,$d-1),-lit($c2,0,$d-1));
+#  }
+#}
 
 # Diagonals
-sudoku_excl(map {lit($_,$_)} (0..8));
-sudoku_excl(map {lit($_,8-$_)} (0..8));
+#sudoku_excl(map {lit($_,$_)} (0..8));
+#sudoku_excl(map {lit($_,8-$_)} (0..8));
 
 # Givens
-add_clause(lit(0,2,1));
+add_clause(lit(6,1,4));
+add_clause(lit(3,2,5));
+add_clause(lit(5,2,0));
+add_clause(lit(1,3,3));
+add_clause(lit(2,5,4));
+add_clause(lit(6,5,0));
 
 sub draw_board {
   my @LABELS=qw/1 2 3 4 5 6 7 8 9/;

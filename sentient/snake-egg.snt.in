@@ -1,0 +1,410 @@
+[[[
+$SIZE = 9;
+$SNAKE_LEN = $SIZE*$SIZE-(($SIZE)*($SIZE-1))/2;
+$BITS=bits($SIZE);
+]]]
+
+# A Sentient program to solve snake egg puzzles: https://youtu.be/73Meh3NPno4
+#
+# The program encodes the head and tail of the snake as -1 and its body as 0.
+# All the numbered regions are encoded as that number in the 10x10 grid.
+
+function main() {
+  # SNAKE EGG
+  array{{$SIZE}}<array{{$SIZE}}<int{{$BITS}}>> grid;
+  array{{$SNAKE_LEN}}<array2<int{{$BITS}}>> snake;
+
+  grid.each(function (row) {
+    row.each(function (digit) {
+      invariant digit.between?(-1, {{$SIZE - 1}});
+    });
+  });
+
+  snake.each(function (coord) {
+    invariant coord.x.between?(0, {{$SIZE - 1}});
+    invariant coord.y.between?(0, {{$SIZE - 1}});
+  });
+
+  # The snake coordinates should follow from each other.
+  snake.eachCons(2, function (coords) {
+    invariant orthogonal?(coords[0], coords[1]);
+  });
+
+  # The snake should not intersect itself.
+  invariant snake.uniq?;
+
+  # The grid should contain a -1 at the head and tail of the snake.
+  invariant grid[snake.head.y][snake.head.x] == -1;
+  invariant grid[snake.tail.y][snake.tail.x] == -1;
+
+  # The grid should contain a 0 for each body piece of the snake.
+  snake.body.each(function^ (coord) {
+    invariant grid[coord.y][coord.x] == 0;
+  });
+
+  # The grid should not contain any other snake pieces.
+  invariant grid.numberOf(-1) == 2;
+  invariant grid.numberOf(0) == {{$SNAKE_LEN - 2}};
+
+  # Snake body pieces should connect to two other orthogonal snake pieces.
+  # Snake head/tail pieces should connect to one other.
+  invariant grid.validSnakeConnections?;
+  # TODO: see if this ^ can be replaced by a simpler check on the snake's path.
+
+  # Compute this once before the loop.
+  quads = grid.quadChunks;
+
+  1.upto({{$SIZE - 1}}, function^ (digit) {
+    invariant grid.numberOf(digit) == digit;
+
+    # The digit should appear as a single contiguous region in the grid.
+    invariant grid.adjacencyCount(quads, digit) + 1 == digit;
+  });
+
+  # Regions should not connect with each other. The snake should separate them.
+  grid.pairs.each(function (pair) {
+    invariant pair.sameRegion? || pair.any?(*snake?);
+  });
+
+  expose grid;
+
+  # CONNECTION BETWEEN SNAKE AND SUDOKU
+  # Sudoku values in non-snake regions must be up to region size.
+  #{{$SIZE}}.times(function^(row) {
+  #  {{$SIZE}}.times(function^(col) {
+  #    invariant grid[row][col] <= 0 || board[row][col] <= grid[row][col];
+  #  });
+  #});
+
+  # Sudoku values do not repeat in snake regions
+  #flatGrid = grid.flatten;
+  #flatBoard = board.flatten;
+  #2.upto(8, function^(digit) {
+  #  invariant extractSudokuFlat(digit,flatGrid,flatBoard).uniq?;
+  #});
+
+  # Head/tail
+  invariant grid[1][6] == -1;
+  invariant grid[5][6] == -1;
+  
+  assertions(grid);
+};
+
+function assertions(grid) {
+  assertSnake(grid,1,2);
+  assertSnake(grid,1,3);
+  assertNotSnake(grid,1,6);
+  assertMinDigit(grid,1,7,7);
+  assertMinDigit(grid,1,8,5);
+  assertMinDigit(grid,2,1,2);
+  assertNotSnake(grid,2,6);
+  assertSnake(grid,2,9);
+  assertSnake(grid,3,5);
+  assertSnake(grid,3,6);
+  assertNotSnake(grid,3,7);
+  assertNotSnake(grid,3,8);
+  assertSnake(grid,3,9);
+  assertNotSnake(grid,4,5);
+  assertMinDigit(grid,4,5,2);
+  assertSnake(grid,4,6);
+  assertSnake(grid,4,7);
+  assertSnake(grid,4,8);
+  assertSnake(grid,4,9);
+  assertMinDigit(grid,5,1,5);
+  assertNotSnake(grid,5,6);
+  assertNotSnake(grid,5,7);
+  assertNotSnake(grid,5,8);
+  assertMinDigit(grid,5,8,6);
+  assertNotSnake(grid,5,9);
+  assertNotSnake(grid,6,6);
+  assertMinDigit(grid,6,8,3);
+  assertNotSnake(grid,6,9);
+  assertMinDigit(grid,7,3,2);
+  assertSnake(grid,7,8);
+  assertSnake(grid,7,9);
+  assertMinDigit(grid,8,3,7);
+  assertNotSnake(grid,8,8);
+  assertSnake(grid,8,9);
+  assertSnake(grid,9,3);
+  assertSnake(grid,9,7);
+  assertSnake(grid,9,8);
+  assertSnake(grid,9,9);
+};
+
+function assertSnake(grid, row, col) {
+  invariant grid[row-1][col-1] == 0;
+};
+
+function assertNotSnake(grid, row, col) {
+  invariant grid[row-1][col-1] > 0;
+};
+
+function assertMinDigit(grid, row, col, d) {
+  invariant grid[row-1][col-1] >= d || grid[row-1][col-1] == 0;
+};
+
+# Check if coord1 is one horizontal or vertical unit away from coord2.
+function orthogonal?(coord1, coord2) {
+  xDelta = (coord1.x - coord2.x).abs;
+  yDelta = (coord1.y - coord2.y).abs;
+
+  return xDelta == 0 && yDelta == 1
+      || xDelta == 1 && yDelta == 0;
+};
+
+# Check if the grid contains a valid snake by running a series of perceptrons
+# over it and checking if the number of orthogonal connecting pieces is correct.
+function validSnakeConnections?(grid) {
+  valid = grid.perceptrons.all?(function (perceptron) {
+    middleDigit = perceptron.e;
+    orthogonals = [perceptron.b, perceptron.d, perceptron.f, perceptron.h];
+
+    return middleDigit.validSurroundings?(orthogonals);
+  });
+
+  valid &&= grid.borderPerceptrons.all?(function (perceptron) {
+    middleDigit = perceptron.b;
+    orthogonals = [perceptron.a, perceptron.c, perceptron.e];
+
+    return middleDigit.validSurroundings?(orthogonals);
+  });
+
+  valid &&= grid.cornerPerceptrons.all?(function (perceptron) {
+    cornerDigit = perceptron.a;
+    orthogonals = [perceptron.b, perceptron.c];
+
+    return cornerDigit.validSurroundings?(orthogonals);
+  });
+
+  return valid;
+};
+
+# Check if the number of orthogonal snake parts is valid for the digit.
+function validSurroundings?(digit, orthogonals) {
+  surroundCount = orthogonals.countBy(*snake?);
+  dontCare = !digit.snake?;
+
+  return digit.headOrTail? && surroundCount == 1
+      || digit.snakeBody? && surroundCount == 2
+      || dontCare;
+};
+
+# Count how many times a digit is next to the same digit in the grid. When one
+# is below and right of others, we have to be careful not to double count it.
+function adjacencyCount(grid, quads, digit) {
+  digit2 = [digit, digit];
+  digit4 = [digit, digit, digit, digit];
+
+  count = quads.map(function^ (chunk) {
+    topMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.topRight] == digit2;
+    });
+
+    leftMatches = chunk.countBy(function^ (quad) {
+      return [quad.topLeft, quad.botLeft] == digit2;
+    });
+
+    rightPair = [chunk.last.topRight, chunk.last.botRight];
+    rightMatches = rightPair == digit2 ? 1 : 0;
+
+    doubleCounts = chunk.countBy(function^ (quad) {
+        return quad == digit4;
+    });
+
+    return topMatches + leftMatches + rightMatches - doubleCounts;
+  }).sum;
+
+  # Check for matches on the bottom row of the grid.
+  grid.last.eachCons(2, function^ (pair) {
+    count += pair == digit2 ? 1 : 0;
+  });
+
+  return count;
+};
+
+# Count how many times digit appears in the grid.
+function numberOf(grid, digit) {
+  return grid.map(function^ (row) {
+    return row.countBy(function^ (d) {
+      return d == digit;
+    });
+  }).sum;
+};
+
+# Return horizontal and vertical pairs as a flat array.
+function pairs(grid) {
+  pairs = [];
+
+  grid.each(function^ (row) {
+    row.eachCons(2, function^ (pair) {
+      pairs = pairs.push(pair);
+    });
+  });
+
+  grid.transpose.each(function^ (column) {
+    column.eachCons(2, function^ (pair) {
+      pairs = pairs.push(pair);
+    });
+  });
+
+  return pairs;
+};
+
+# Return all 2x2 quads in the grid, chunked by rows.
+function quadChunks(grid) {
+  chunks = [];
+
+  grid.eachCons(2, function^ (rowPair) {
+    quads = [];
+
+    # TODO: test if there's any performance hit of using #times
+    rowPair.first.eachCons(2, function^ (topPair, indexes) {
+      topLeft = topPair[0];
+      topRight = topPair[1];
+      botLeft = rowPair.last[indexes[0]];
+      botRight = rowPair.last[indexes[1]];
+
+      quads = quads.push([topLeft, topRight, botLeft, botRight]);
+    });
+
+    chunks = chunks.push(quads);
+  });
+
+  return chunks;
+};
+
+# Return all 3x3 perceptrons in the grid, chunked by rows.
+function perceptrons(grid) {
+  perceptrons = [];
+
+  grid.eachCons(3, function^ (rowTriple) {
+    rowTriple.first.eachCons(3, function^ (topTriple, indexes) {
+      a = topTriple[0];
+      b = topTriple[1];
+      c = topTriple[2];
+
+      d = rowTriple[1][indexes[0]];
+      e = rowTriple[1][indexes[1]];
+      f = rowTriple[1][indexes[2]];
+
+      g = rowTriple.last[indexes[0]];
+      h = rowTriple.last[indexes[1]];
+      i = rowTriple.last[indexes[2]];
+
+      perceptrons = perceptrons.push([[a, b, c, d, e, f, g, h, i]]);
+    });
+  });
+
+  return perceptrons;
+};
+
+# Return 3x2 perceptrons at the border of the grid.
+function borderPerceptrons(grid) {
+  perceptrons = [];
+
+  rows, cols = grid, grid.transpose;
+  borders = [
+    [rows[0], rows[1]],
+    [rows[{{$SIZE - 1}}], rows[{{$SIZE - 2}}]],
+    [cols[0], cols[1]],
+    [cols[{{$SIZE - 1}}], cols[{{$SIZE - 2}}]]
+  ];
+
+  borders.each(function^ (linePair) {
+    linePair.first.eachCons(3, function^ (firstTriple, indexes) {
+      a = firstTriple[0];
+      b = firstTriple[1];
+      c = firstTriple[2];
+
+      d = linePair.last[indexes[0]];
+      e = linePair.last[indexes[1]];
+      f = linePair.last[indexes[2]];
+
+      perceptrons = perceptrons.push([[a, b, c, d, e, f]]);
+    });
+  });
+
+  return perceptrons;
+};
+
+# Return 2x2 perceptrons at the corners of the grid.
+function cornerPerceptrons(grid) {
+  topLeft  = [grid[0][0], grid[0][1], grid[1][0], grid[1][1]];
+  topRight = [grid[0][{{$SIZE - 1}}], grid[0][{{$SIZE - 2}}], grid[1][{{$SIZE - 1}}], grid[1][{{$SIZE - 2}}]];
+  botLeft  = [grid[{{$SIZE - 1}}][0], grid[{{$SIZE - 1}}][1], grid[{{$SIZE - 2}}][0], grid[{{$SIZE - 2}}][1]];
+  botRight = [grid[{{$SIZE - 1}}][{{$SIZE - 1}}], grid[{{$SIZE - 1}}][{{$SIZE - 2}}], grid[{{$SIZE - 2}}][{{$SIZE - 1}}], grid[{{$SIZE - 2}}][{{$SIZE - 2}}]];
+
+  return [[topLeft], [topRight], [botLeft], [botRight]];
+};
+
+# Some convenience methods for working with quads.
+function topLeft(quad)  { return quad[0]; };
+function topRight(quad) { return quad[1]; };
+function botLeft(quad)  { return quad[2]; };
+function botRight(quad) { return quad[3]; };
+
+# Some convenience methods for working with perceptrons.
+# Use the type system to avoid calling topLeft, etc on perceptrons.
+function a(perceptron) { return perceptron.first[0]; };
+function b(perceptron) { return perceptron.first[1]; };
+function c(perceptron) { return perceptron.first[2]; };
+function d(perceptron) { return perceptron.first[3]; };
+function e(perceptron) { return perceptron.first[4]; };
+function f(perceptron) { return perceptron.first[5]; };
+function g(perceptron) { return perceptron.first[6]; };
+function h(perceptron) { return perceptron.first[7]; };
+function i(perceptron) { return perceptron.first[8]; };
+
+# Some convenience methods for working with snakes.
+function snake?(digit) { return digit.snakeBody? || digit.headOrTail?; };
+function snakeBody?(digit) { return digit == 0; };
+function headOrTail?(digit) { return digit == -1; };
+function sameRegion?(pair) { return pair[0] == pair[1]; };
+
+function head(snake) { return snake.first; };
+function tail(snake) { return snake.last; };
+function x(coord) { return coord[0]; };
+function y(coord) { return coord[1]; };
+
+# Get the middle section of the snake excluding head and tail.
+# Sentient doesn't support ranges so do something hacky with eachCons.
+function body(snake) {
+  body = [];
+
+  snake.eachCons({{$SNAKE_LEN - 1}}, function^ (arr1) {
+    arr1.reverse.eachCons({{$SNAKE_LEN - 2}}, function^ (arr2) {
+      body = arr2.reverse;
+    });
+  });
+
+  return body;
+};
+
+function flatten(grid) {
+  flat = [];
+  grid.each(function^ (nested) {
+    nested.each(function^ (element) {
+      flat = flat.push(element);
+    });
+  });
+  return flat;
+};
+
+function extractSudoku(digit, grid, board) {
+  out = [-1,0];
+  9.times(function^(row) {
+    9.times(function^(col) {
+      out = if(digit == grid[row][col], out.push(board[row][col]), out);
+    });
+  });
+  return out;
+};
+
+
+function extractSudokuFlat(digit, grid, board) {
+  return board.select(function^(el, idx) {
+    return grid[idx] == digit;
+  }); 
+};
+
+main();
